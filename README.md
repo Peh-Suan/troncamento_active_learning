@@ -8,10 +8,12 @@ The model takes in the target phone's acoustics, as feature embeddings extracted
 
 ## Training process
 1. Pretraining
+
 Silver labels are provided based on phonologically unambiguous sonorants (/n, m, l, r/) and the target vowel /e/ (i.e., no preceding sonorants) in word-final positions.
 After pretraining, supervised active learning can be conducted.
 
 2. Active learning
+
 - First, extract the tokens to be labeled based on an uncertainty function. The current function is based on entropy.
 - A `gold_label.csv` file will be created. Label the file with `0` (the phone is not the target /e/) or `1` (the phone is /e/).
 - Train the model on the labeled data.
