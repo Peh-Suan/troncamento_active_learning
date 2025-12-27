@@ -9,7 +9,7 @@ The model takes in the target phone's acoustics, as feature embeddings extracted
 ## Training process
 1. Pretraining
 
-Silver labels are provided based on phonologically unambiguous sonorants (/n, m, l, r/) and the target vowel /e/ (i.e., no preceding sonorants) in word-final positions.
+Silver labels are provided based on phonologically unambiguous sonorants (/n, m, l, r/) and target vowel /e/ (i.e., no preceding sonorants) in word-final positions.
 After pretraining, supervised active learning can be conducted.
 
 2. Active learning
