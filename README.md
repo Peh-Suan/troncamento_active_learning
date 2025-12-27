@@ -13,9 +13,9 @@ After pretraining, supervised active learning can be conducted.
 
 2. Active learning
 - First extract the tokens to be labeled based on an uncertainty function. The current function is a based on entropy.
-- A "gold_label.csv" file will be created. Label the file with 0 (the phone is not the target /e/) or 1 (the phone is /e/).
+- A "gold_label.csv" file will be created. Label the file with `0` (the phone is not the target /e/) or `1` (the phone is /e/).
 - Train the model on the labeled data.
 - Repeat the previous three steps until the performance reaches the desired level.
 
 ## TextGrid labeling
-TextGrid labeling is required. A folder `it_vxc_textgrids17_acoustic17` is expected, with the textgrid files named as `common_voice_it_*.TextGrid`
+TextGrid labeling is required. A folder `it_vxc_textgrids17_acoustic17` is expected, with the textgrid files named as `common_voice_it_*.TextGrid`.
