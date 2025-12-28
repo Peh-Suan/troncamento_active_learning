@@ -8,19 +8,94 @@ import tqdm
 from model import uncertainty
 import pandas as pd
 
-def pretrain_one_epoch(pretrain_dataset, model, optimizer, criterion, device, pretrain_ckpt):
-    loader = torch.utils.data.DataLoader(
-        pretrain_dataset,
-        batch_size=4,
+from torch.utils.data import random_split, DataLoader
+
+def make_train_val_loaders(dataset, batch_size=4, val_ratio=0.0002, seed=42):
+    n_total = len(dataset)
+    n_val = int(n_total * val_ratio)
+    n_train = n_total - n_val
+
+    generator = torch.Generator().manual_seed(seed)
+    train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=generator)
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=0
     )
 
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0
+    )
+
+    return train_loader, val_loader
+
+@torch.no_grad()
+def evaluate(model, loader, criterion, device):
+    model.eval()
+
+    total_loss = 0.0
+    total_correct = 0
+    total_seen = 0
+
+    for x, phone_ids, y in tqdm.tqdm(loader, leave=False):
+
+        x = x.to(device)
+        phone_ids = phone_ids.to(device)
+        y = y.to(device)
+
+        logits = model(x, phone_ids)
+        loss = criterion(logits, y)
+
+        batch_size = y.size(0)
+        total_loss += loss.item() * batch_size
+        preds = (logits > 0).long()
+        total_correct += (preds == y).sum().item()
+        total_seen += batch_size
+
+    return {
+        "loss": total_loss / total_seen,
+        "acc": total_correct / total_seen
+    }
+
+
+import tqdm
+import matplotlib.pyplot as plt
+
+def pretrain_one_epoch(
+    dataset,
+    model,
+    optimizer,
+    criterion,
+    device,
+    pretrain_ckpt,
+    batch_size=4
+):
+    train_loader, val_loader = make_train_val_loaders(
+        dataset,
+        batch_size=batch_size
+    )
+
     model.train()
-    total_loss = 0
-    pbar = tqdm.tqdm(loader)
+
+    total_loss = 0.0
+    total_correct = 0
+    total_seen = 0
+
+    # ---- logging buffers (VAL only) ----
+    log_steps = []
+    val_losses = []
+    val_accs = []
+
+    pbar = tqdm.tqdm(train_loader)
+    step = -1
 
     for x, phone_ids, y in pbar:
+        step += 1
         x = x.to(device)
         phone_ids = phone_ids.to(device)
         y = y.to(device)
@@ -31,12 +106,50 @@ def pretrain_one_epoch(pretrain_dataset, model, optimizer, criterion, device, pr
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item()
-        break
+        # ---- train stats (for progress bar only) ----
+        batch_size = y.size(0)
+        loss += loss.item() * batch_size
+        preds = (logits > 0).long()
+        correct = (preds == y).sum().item()
+        seen = batch_size
 
-        pbar.set_description(f"loss = {total_loss / (pbar.n + 1):.4f}")
+        pbar.set_description(
+            f"train loss={loss/seen:.4f}, "
+            f"train acc={correct/seen:.4f}"
+        )
 
-    print(f"Training completed. Loss = {total_loss / len(loader):.4f}")
+        # ---- validation every 1000 steps ----
+        if step % 10 == 0 and step > 0:
+            val_stats = evaluate(model, val_loader, criterion, device)
+
+            log_steps.append(step)
+            val_losses.append(val_stats["loss"])
+            val_accs.append(val_stats["acc"])
+
+            model.train()  # switch back
+
+            # ---- plot validation curves ----
+            fig, ax1 = plt.subplots(figsize=(6, 4))
+
+            ax1.plot(log_steps, val_losses, label="Val Loss")
+            ax1.set_xlabel("Training step")
+            ax1.set_ylabel("Loss")
+
+            ax2 = ax1.twinx()
+            ax2.plot(log_steps, val_accs, color="tab:orange", label="Val Accuracy")
+            ax2.set_ylabel("Accuracy")
+
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(lines1 + lines2, labels1 + labels2)
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(os.path.dirname(pretrain_ckpt), "pretrain_val_curve.png"))
+            plt.close("all")
+        if step % 100 == 0 and step > 0:
+            torch.save(model.state_dict(), pretrain_ckpt)
+            
+    print(f"Training completed.")
     print("Checkpoint saved at ", pretrain_ckpt)
     torch.save(model.state_dict(), pretrain_ckpt)
 
@@ -126,6 +239,8 @@ def select_uncertain_samples(
 ):
     model.eval()
     scored = []
+    target_basedataset._refresh_gold_labels()
+    excluded_ids = [idx for idx in range(len(target_basedataset)) if target_basedataset.get_unique_id(idx) in target_basedataset.gold_labels["label"]]
     target_dataset = SegmentPairDataset(target_basedataset)
 
     if random_sample is not None and random_sample < len(target_basedataset):
@@ -135,6 +250,8 @@ def select_uncertain_samples(
 
     with torch.no_grad():
         for idx in tqdm.tqdm(pool_indices):
+            if idx in excluded_ids:
+                continue
             x, phone_ids, y = target_dataset[idx]
             
             
