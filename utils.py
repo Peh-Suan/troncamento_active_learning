@@ -230,6 +230,47 @@ def train_on_gold_dataset(model_class, model_folder, base_dataset, device="cpu",
     with open(train_history_path, "wb") as f:
         pickle.dump(train_history, f)
 
+def select_uncertain_pos_neg(logits, k):
+    """
+    logits: Tensor of shape (N,) or (N, 1)
+    k: number of samples per group
+
+    Returns:
+        pos_idx: indices of top-k uncertain predicted-positive samples
+        neg_idx: indices of top-k uncertain predicted-negative samples
+    """
+    logits = logits.view(-1)
+
+    # probabilities
+    p = torch.sigmoid(logits)
+
+    # predicted labels
+    preds = (p >= 0.5)
+
+    # uncertainty (Bernoulli entropy)
+    eps = 1e-8
+    uncertainty = -p * torch.log(p + eps) - (1 - p) * torch.log(1 - p + eps)
+
+    # split indices
+    pos_indices = torch.where(preds)[0]
+    neg_indices = torch.where(~preds)[0]
+
+    # uncertainties per group
+    pos_uncert = uncertainty[pos_indices]
+    neg_uncert = uncertainty[neg_indices]
+
+    # top-k uncertain within each group
+    k_pos = min(k, len(pos_indices))
+    k_neg = min(k, len(neg_indices))
+
+    _, pos_topk_idx = torch.topk(pos_uncert, k_pos)
+    _, neg_topk_idx = torch.topk(neg_uncert, k_neg)
+
+    pos_selected = pos_indices[pos_topk_idx]
+    neg_selected = neg_indices[neg_topk_idx]
+
+    return pos_selected, neg_selected
+
 def select_uncertain_samples(
     model,
     target_basedataset,
@@ -238,9 +279,16 @@ def select_uncertain_samples(
     device="cpu"
 ):
     model.eval()
-    scored = []
+
     target_basedataset._refresh_gold_labels()
-    excluded_ids = [idx for idx in range(len(target_basedataset)) if target_basedataset.get_unique_id(idx) in target_basedataset.gold_labels["label"]]
+
+    excluded_ids = {
+        idx
+        for idx in range(len(target_basedataset))
+        if target_basedataset.get_unique_id(idx)
+        in target_basedataset.gold_labels["label"]
+    }
+
     target_dataset = SegmentPairDataset(target_basedataset)
 
     if random_sample is not None and random_sample < len(target_basedataset):
@@ -248,33 +296,35 @@ def select_uncertain_samples(
     else:
         pool_indices = list(range(len(target_basedataset)))
 
+    all_logits = []
+    all_indices = []
+
     with torch.no_grad():
         for idx in tqdm.tqdm(pool_indices):
             if idx in excluded_ids:
                 continue
+
             x, phone_ids, y = target_dataset[idx]
-            
-            
-            logit = model(x.unsqueeze(0).to(device), phone_ids.unsqueeze(0).to(device)).squeeze(0)
 
-            prob = torch.sigmoid(logit).item()
-            u = uncertainty(logit).item()
+            logit = model(
+                x.unsqueeze(0).to(device),
+                phone_ids.unsqueeze(0).to(device)
+            ).squeeze(0)
 
-            scored.append({
-                "index": idx,
-                "logit": logit.item(),
-                "prob": prob,
-                "uncertainty": u
-            })
+            all_logits.append(logit)
+            all_indices.append(idx)
 
-    # sort by uncertainty (descending)
-    scored.sort(key=lambda d: d["uncertainty"], reverse=True)
+    logits = torch.stack(all_logits)
 
-    # select top-k
-    selected = scored[:k]
+    pos_idx, neg_idx = select_uncertain_pos_neg(logits, k=k)
 
-    for s in selected:
-        target_basedataset.add_data_to_gold(s["index"], label=None)
+    selected_dataset_indices = (
+        [all_indices[i] for i in pos_idx.tolist()] +
+        [all_indices[i] for i in neg_idx.tolist()]
+    )
+
+    for idx in selected_dataset_indices:
+        target_basedataset.add_data_to_gold(idx, label=None)
 
 def put_files_to_folder(target_basedataset, folder_path="selected_samples", tgrd_fs_folder="it_vxc_textgrids17_acoustic17"):
     target_basedataset._refresh_gold_labels()

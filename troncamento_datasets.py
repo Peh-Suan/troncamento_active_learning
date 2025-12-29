@@ -10,8 +10,12 @@ import os
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(self, df, dataset_type, return_player=False):
 
-        self.phones = sorted(df["preceding_phone"].unique())
+        self.embed_dim = 1024
+
+        self.phones = sorted(set(list(df["preceding_phone"].unique()) + list(df["target_phone"].unique()) + [phone for phone in df["following_phone"].unique() if pd.notna(phone)]))
         self.phone2id = {p: i for i, p in enumerate(self.phones)}
+        self.phone2id["<NULL>"] = len(self.phone2id)
+
         assert dataset_type in ("pre_train", "target", "all")
         if dataset_type == "pre_train":
             df = df[df["type"] == "non_troncamento"].reset_index(drop=True)
@@ -53,20 +57,45 @@ class BaseDataset(torch.utils.data.Dataset):
             end_time=row["preceding_phone_end_time"],
             save_temp_files=False,
         )
+        following_segment, _, following_player = self._get_audio_segment(
+            id_num=row["id"],
+            mp3_path=row["mp3_path"],
+            start_time=row["following_phone_start_time"],
+            end_time=row["following_phone_end_time"],
+            save_temp_files=False,
+        )
+
+        if following_segment is None:
+            following_embed = torch.zeros(self.embed_dim)
+            following_phone = "<NULL>"
+            following_phone_id = self.phone2id["<NULL>"]
+        else:
+            following_embed = self._to_embed(following_segment, sr)
+            following_phone = row["following_phone"]
+            following_phone_id = self.phone2id[row["following_phone"]]
 
         data = {
             "word": row["word"],
             "type": row["type"],
+
             "target_phone": row["target_phone"],
             "target_phone_id": self.phone2id[row["target_phone"]],
             "target_audio": target_segment,
             "target_embed": self._to_embed(target_segment, sr),
             "target_player": target_player,
+
             "preceding_phone": row["preceding_phone"],
             "preceding_phone_id": self.phone2id[row["preceding_phone"]],
             "preceding_audio": preceding_segment,
             "preceding_embed": self._to_embed(preceding_segment, sr),
             "preceding_player": preceding_player,
+
+            "following_phone": row["following_phone"],
+            "following_phone_id": following_phone_id,
+            "following_audio": following_segment,
+            "following_embed": following_embed,
+            "following_player": following_player,
+
             "sr": sr
         }
         data = self._add_heuristic_label(data)
@@ -188,6 +217,8 @@ class BaseDataset(torch.utils.data.Dataset):
         return embed.cpu()
 
     def _get_audio_segment(self, id_num, mp3_path, start_time, end_time, save_temp_files=False):
+        if pd.isna(start_time) or pd.isna(end_time):
+            return None, None, None
 
         target_id = f"{id_num}"
         audio, sr = librosa.load(mp3_path, sr=None)
@@ -214,12 +245,23 @@ class SegmentPairDataset(torch.utils.data.Dataset):
     def _get_features(self, ex):
         e1 = ex["preceding_embed"]
         e2 = ex["target_embed"]
+        e3 = ex["following_embed"]
+
         features = torch.cat([
+            # identities
             e1,
             e2,
+            e3,
+
+            # preceding ↔ target
             torch.abs(e1 - e2),
-            e1 * e2
+            e1 * e2,
+
+            # target ↔ following
+            torch.abs(e2 - e3),
+            e2 * e3,
         ])
+
         return features
 
     def __getitem__(self, idx):
@@ -229,7 +271,8 @@ class SegmentPairDataset(torch.utils.data.Dataset):
 
         phone_ids = torch.tensor([
             ex["preceding_phone_id"],
-            ex["target_phone_id"]
+            ex["target_phone_id"],
+            ex["following_phone_id"],
         ])
 
         label = ex["silver_label"]

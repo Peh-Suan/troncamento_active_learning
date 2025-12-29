@@ -8,7 +8,7 @@ class MisalignmentDetector(nn.Module):
         self.phone_emb = nn.Embedding(n_phones, phone_emb_dim)
 
         self.net = nn.Sequential(
-            nn.Linear(dim * 4 + phone_emb_dim * 2, 512),
+            nn.Linear(dim * 7 + phone_emb_dim * 3, 512),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(512, 128),
