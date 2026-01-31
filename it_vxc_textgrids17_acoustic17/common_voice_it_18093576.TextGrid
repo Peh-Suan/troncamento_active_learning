@@ -2,7 +2,7 @@ File type = "ooTextFile"
 Object class = "TextGrid"
 
 xmin = 0 
-xmax = 4.397625 
+xmax = 4.392 
 tiers? <exists> 
 size = 2 
 item []: 
@@ -10,71 +10,99 @@ item []:
         class = "IntervalTier" 
         name = "words" 
         xmin = 0 
-        xmax = 4.397625 
-        intervals: size = 5 
+        xmax = 4.392 
+        intervals: size = 6 
         intervals [1]:
-            xmin = 0 
-            xmax = 1.69 
+            xmin = 0.0 
+            xmax = 0.09 
             text = "" 
         intervals [2]:
-            xmin = 1.69 
-            xmax = 2.26 
+            xmin = 0.09 
+            xmax = 1.64 
             text = "degne" 
         intervals [3]:
-            xmin = 2.26 
-            xmax = 2.5 
-            text = "dei" 
+            xmin = 1.64 
+            xmax = 1.67 
+            text = "" 
         intervals [4]:
-            xmin = 2.5 
-            xmax = 3.1 
-            text = "titani" 
+            xmin = 1.67 
+            xmax = 2.49 
+            text = "dei" 
         intervals [5]:
-            xmin = 3.1 
-            xmax = 4.397625 
+            xmin = 2.49 
+            xmax = 4.342 
+            text = "titani" 
+        intervals [6]:
+            xmin = 4.342 
+            xmax = 4.392 
             text = "" 
     item [2]:
         class = "IntervalTier" 
         name = "phones" 
         xmin = 0 
-        xmax = 4.397625 
-        intervals: size = 10 
+        xmax = 4.392 
+        intervals: size = 16 
         intervals [1]:
-            xmin = 0 
-            xmax = 1.69 
+            xmin = 0.0 
+            xmax = 0.09 
             text = "" 
         intervals [2]:
-            xmin = 1.69 
-            xmax = 1.82 
+            xmin = 0.09 
+            xmax = 0.55 
             text = "d" 
         intervals [3]:
-            xmin = 1.82 
-            xmax = 2.01 
+            xmin = 0.55 
+            xmax = 0.58 
             text = "e" 
         intervals [4]:
-            xmin = 2.01 
-            xmax = 2.21 
-            text = "ɲː" 
+            xmin = 0.58 
+            xmax = 0.61 
+            text = "ɲ" 
         intervals [5]:
-            xmin = 2.21 
-            xmax = 2.26 
+            xmin = 0.61 
+            xmax = 1.64 
             text = "e" 
         intervals [6]:
-            xmin = 2.26 
-            xmax = 2.3 
-            text = "d" 
+            xmin = 1.64 
+            xmax = 1.67 
+            text = "" 
         intervals [7]:
-            xmin = 2.3 
-            xmax = 2.4 
-            text = "e" 
+            xmin = 1.67 
+            xmax = 1.82 
+            text = "d" 
         intervals [8]:
-            xmin = 2.4 
-            xmax = 2.5 
-            text = "i" 
+            xmin = 1.82 
+            xmax = 2.21 
+            text = "e" 
         intervals [9]:
-            xmin = 2.5 
-            xmax = 3.1 
-            text = "spn" 
+            xmin = 2.21 
+            xmax = 2.49 
+            text = "i" 
         intervals [10]:
-            xmin = 3.1 
-            xmax = 4.397625 
+            xmin = 2.49 
+            xmax = 2.55 
+            text = "t" 
+        intervals [11]:
+            xmin = 2.55 
+            xmax = 2.67 
+            text = "i" 
+        intervals [12]:
+            xmin = 2.67 
+            xmax = 2.73 
+            text = "t" 
+        intervals [13]:
+            xmin = 2.73 
+            xmax = 2.89 
+            text = "a" 
+        intervals [14]:
+            xmin = 2.89 
+            xmax = 2.98 
+            text = "n" 
+        intervals [15]:
+            xmin = 2.98 
+            xmax = 4.342 
+            text = "i" 
+        intervals [16]:
+            xmin = 4.342 
+            xmax = 4.392 
             text = "" 

@@ -2,7 +2,7 @@ File type = "ooTextFile"
 Object class = "TextGrid"
 
 xmin = 0 
-xmax = 2.981625 
+xmax = 2.976 
 tiers? <exists> 
 size = 2 
 item []: 
@@ -10,43 +10,79 @@ item []:
         class = "IntervalTier" 
         name = "words" 
         xmin = 0 
-        xmax = 2.981625 
+        xmax = 2.976 
         intervals: size = 4 
         intervals [1]:
-            xmin = 0 
-            xmax = 0.63 
+            xmin = 0.0 
+            xmax = 0.62 
             text = "" 
         intervals [2]:
-            xmin = 0.63 
+            xmin = 0.62 
             xmax = 1.2 
             text = "vampire" 
         intervals [3]:
             xmin = 1.2 
-            xmax = 1.84 
+            xmax = 2.926 
             text = "wars" 
         intervals [4]:
-            xmin = 1.84 
-            xmax = 2.981625 
+            xmin = 2.926 
+            xmax = 2.976 
             text = "" 
     item [2]:
         class = "IntervalTier" 
         name = "phones" 
         xmin = 0 
-        xmax = 2.981625 
-        intervals: size = 4 
+        xmax = 2.976 
+        intervals: size = 13 
         intervals [1]:
-            xmin = 0 
-            xmax = 0.63 
+            xmin = 0.0 
+            xmax = 0.62 
             text = "" 
         intervals [2]:
-            xmin = 0.63 
-            xmax = 1.2 
-            text = "spn" 
+            xmin = 0.62 
+            xmax = 0.68 
+            text = "v" 
         intervals [3]:
-            xmin = 1.2 
-            xmax = 1.84 
-            text = "spn" 
+            xmin = 0.68 
+            xmax = 0.73 
+            text = "a" 
         intervals [4]:
-            xmin = 1.84 
-            xmax = 2.981625 
+            xmin = 0.73 
+            xmax = 0.86 
+            text = "m" 
+        intervals [5]:
+            xmin = 0.86 
+            xmax = 0.91 
+            text = "p" 
+        intervals [6]:
+            xmin = 0.91 
+            xmax = 0.94 
+            text = "i" 
+        intervals [7]:
+            xmin = 0.94 
+            xmax = 0.97 
+            text = "r" 
+        intervals [8]:
+            xmin = 0.97 
+            xmax = 1.2 
+            text = "e" 
+        intervals [9]:
+            xmin = 1.2 
+            xmax = 1.42 
+            text = "w" 
+        intervals [10]:
+            xmin = 1.42 
+            xmax = 1.51 
+            text = "a" 
+        intervals [11]:
+            xmin = 1.51 
+            xmax = 1.57 
+            text = "r" 
+        intervals [12]:
+            xmin = 1.57 
+            xmax = 2.926 
+            text = "s" 
+        intervals [13]:
+            xmin = 2.926 
+            xmax = 2.976 
             text = "" 
