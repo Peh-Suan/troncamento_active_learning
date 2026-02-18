@@ -98,55 +98,92 @@ class BaseDataset(torch.utils.data.Dataset):
             data["gold_label"] = None
         return data
 
-    def predict_label(
+    @torch.no_grad()
+    def predict_sample_label(
         self,
         row_idx: int,
-        prefer_gold: bool = True,
-        fallback_to_silver: bool = True,
-        default: int = -1,
-        refresh: bool = False,
-    ) -> int:
+        model,
+        thr_bad: float = 0.5,
+        thr_e: float = 0.5,
+        device=None,
+        refresh_gold: bool = False,
+        prefer_gold: bool = False,
+    ):
         """
-        Predict a sample's label in {1, 0, -1} given a dataset row index.
+        Predict label in {1, 0, -1} for a given row_idx using MisalignmentDetector.
 
-        Priority (default):
-          1) gold label if available
-          2) silver (heuristic) label if enabled
-          3) default (=-1)
+        Rule:
+        if sigmoid(logit_bad) >= thr_bad -> -1
+        elif sigmoid(logit_e) >= thr_e   ->  1
+        else                             ->  0
 
-        Args:
-          row_idx: index into self.df / dataset index used by __getitem__
-          prefer_gold: if True, use gold label when present
-          fallback_to_silver: if True, use heuristic label when no gold
-          default: returned when no gold and no silver (or silver disabled)
-          refresh: if True, re-read gold label CSVs before predicting
+        If prefer_gold=True and a gold label exists, return that instead.
 
         Returns:
-          int in {1, 0, -1}
+        (pred_label:int, info:dict)
         """
         if not (0 <= row_idx < len(self.df)):
             raise IndexError(f"row_idx {row_idx} out of range (0..{len(self.df)-1})")
 
-        if refresh:
+        if refresh_gold:
             self._refresh_gold_labels()
 
-        uid = self.get_unique_id(row_idx)
-
-        # 1) gold
+        # Optional: override with gold label
         if prefer_gold:
+            uid = self.get_unique_id(row_idx)
             if uid in self.gold_labels["label"]:
                 lab = self.gold_labels["label"][uid]
                 if pd.notna(lab):
-                    return int(lab)
+                    return int(lab), {"source": "gold", "unique_id": uid}
 
-        # 2) silver (heuristic)
-        if fallback_to_silver:
-            row = self.df.iloc[row_idx]
-            # your heuristic is: 1 iff target_phone == "e" else 0
-            return 1 if row["target_phone"] == "e" else 0
+        model.eval()
+        if device is None:
+            device = next(model.parameters()).device
 
-        # 3) default
-        return int(default)
+        sample = self[row_idx]  # uses __getitem__ -> includes hidden + phone ids + silver_label
+        hidden_seq = sample["hidden"]  # (T, D)
+        T = hidden_seq.shape[0]
+
+        # mask: all frames valid (since your saved_hiddens are variable-length, not padded here)
+        mask = torch.ones(T, dtype=torch.bool)
+
+        # phone_ids: your model expects 2 phones (preceding + following) based on phone_emb_dim*2
+        phone_ids = torch.tensor(
+            [sample["preceding_phone_id"], sample["following_phone_id"]],
+            dtype=torch.long
+        )
+
+        silver = torch.tensor(sample["silver_label"], dtype=torch.float32)
+
+        # add batch dim
+        hidden_seq = hidden_seq.unsqueeze(0).to(device)      # (1, T, D)
+        mask = mask.unsqueeze(0).to(device)                  # (1, T)
+        phone_ids = phone_ids.unsqueeze(0).to(device)        # (1, 2)
+        silver = silver.unsqueeze(0).to(device)              # (1,)
+
+        logit_e, logit_bad, attn = model(hidden_seq, mask, phone_ids, silver)
+
+        p_e = torch.sigmoid(logit_e).item()
+        p_bad = torch.sigmoid(logit_bad).item()
+
+        if p_bad >= thr_bad:
+            pred = -1
+        elif p_e >= thr_e:
+            pred = 1
+        else:
+            pred = 0
+
+        info = {
+            "source": "model",
+            "p_e": p_e,
+            "p_bad": p_bad,
+            "thr_e": thr_e,
+            "thr_bad": thr_bad,
+            "unique_id": self.get_unique_id(row_idx),
+        }
+        return pred, info
+
+
 
     
     def _refresh_gold_labels(self):
