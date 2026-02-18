@@ -7,6 +7,7 @@ import torch
 from transformers import Wav2Vec2Model, Wav2Vec2FeatureExtractor
 import os
 
+
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(self, df, dataset_type, return_player=False):
 
@@ -35,7 +36,7 @@ class BaseDataset(torch.utils.data.Dataset):
 
         self.return_player = return_player
 
-        self.device = "cpu"
+        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
 
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(
             "facebook/wav2vec2-large-xlsr-53"
@@ -62,10 +63,14 @@ class BaseDataset(torch.utils.data.Dataset):
             following_phone = row["following_phone"]
 
         
-        embed = self._to_embed(row["id"],
-                               row["mp3_path"],
-                               start_time,
-                               end_time)
+        # embed = self._to_embed(row["id"],
+        #                        row["mp3_path"],
+        #                        start_time,
+        #                        end_time)
+        hidden = self._to_hidden(row["id"],
+                                 row["mp3_path"],
+                                 start_time,
+                                 end_time)
 
         data = {
             "word": row["word"],
@@ -81,7 +86,8 @@ class BaseDataset(torch.utils.data.Dataset):
             "following_phone": following_phone,
             "following_phone_id": self.phone2id[following_phone],
 
-            "embed": embed,
+            # "embed": embed,
+            "hidden": hidden,
         }
         data = self._add_heuristic_label(data)
         data["dataset_index"] = idx
@@ -91,6 +97,57 @@ class BaseDataset(torch.utils.data.Dataset):
         else:
             data["gold_label"] = None
         return data
+
+    def predict_label(
+        self,
+        row_idx: int,
+        prefer_gold: bool = True,
+        fallback_to_silver: bool = True,
+        default: int = -1,
+        refresh: bool = False,
+    ) -> int:
+        """
+        Predict a sample's label in {1, 0, -1} given a dataset row index.
+
+        Priority (default):
+          1) gold label if available
+          2) silver (heuristic) label if enabled
+          3) default (=-1)
+
+        Args:
+          row_idx: index into self.df / dataset index used by __getitem__
+          prefer_gold: if True, use gold label when present
+          fallback_to_silver: if True, use heuristic label when no gold
+          default: returned when no gold and no silver (or silver disabled)
+          refresh: if True, re-read gold label CSVs before predicting
+
+        Returns:
+          int in {1, 0, -1}
+        """
+        if not (0 <= row_idx < len(self.df)):
+            raise IndexError(f"row_idx {row_idx} out of range (0..{len(self.df)-1})")
+
+        if refresh:
+            self._refresh_gold_labels()
+
+        uid = self.get_unique_id(row_idx)
+
+        # 1) gold
+        if prefer_gold:
+            if uid in self.gold_labels["label"]:
+                lab = self.gold_labels["label"][uid]
+                if pd.notna(lab):
+                    return int(lab)
+
+        # 2) silver (heuristic)
+        if fallback_to_silver:
+            row = self.df.iloc[row_idx]
+            # your heuristic is: 1 iff target_phone == "e" else 0
+            return 1 if row["target_phone"] == "e" else 0
+
+        # 3) default
+        return int(default)
+
     
     def _refresh_gold_labels(self):
         if not os.path.isfile("gold_labels.csv"):
@@ -133,13 +190,19 @@ class BaseDataset(torch.utils.data.Dataset):
         self.gold_labels["is_val"] = {}
         import random
         random.seed(42)
-        positive_unique_ids = [uid for uid, label in self.gold_labels["label"].items() if label == 1 and self.gold_labels["label_type"][uid]=="pretrain"]
-        negative_unique_ids = [uid for uid, label in self.gold_labels["label"].items() if label == 0 and self.gold_labels["label_type"][uid]=="pretrain"]
-        min_n = min(len(positive_unique_ids), len(negative_unique_ids), 40)
-        val_positive_unids = random.sample(positive_unique_ids, k=max(min_n, int(len(negative_unique_ids)*0.6)))
-        val_negative_unids = random.sample(negative_unique_ids, k=max(min_n, int(len(negative_unique_ids)*0.6)))
+        # positive_unique_ids = [uid for uid, label in self.gold_labels["label"].items() if label == 1 and self.gold_labels["label_type"][uid]=="pretrain"]
+        # negative_unique_ids = [uid for uid, label in self.gold_labels["label"].items() if label == 0 and self.gold_labels["label_type"][uid]=="pretrain"]
+        # bad_unique_ids = [uid for uid, label in self.gold_labels["label"].items() if label == -1 and self.gold_labels["label_type"][uid]=="pretrain"]
+        # min_n = min(len(positive_unique_ids), len(negative_unique_ids), 40)
+        # val_positive_unids = random.sample(positive_unique_ids, k=max(min_n, int(len(negative_unique_ids)*0.6)))
+        # val_negative_unids = random.sample(negative_unique_ids, k=max(min_n, int(len(negative_unique_ids)*0.6)))
+        # val_bad_unids = random.sample(bad_unique_ids, k=int(len(bad_unique_ids)*0.6))
+        # for i, uid in enumerate(self.gold_labels["label"].keys()):
+        #     self.gold_labels["is_val"][uid] = (uid in val_positive_unids+val_negative_unids+val_bad_unids)
+        val_unique_ids = random.sample(list(self.gold_labels["label"].keys()), k=int(len(self.gold_labels["label"])*0.2))
         for i, uid in enumerate(self.gold_labels["label"].keys()):
-            self.gold_labels["is_val"][uid] = (uid in val_positive_unids+val_negative_unids)
+            self.gold_labels["is_val"][uid] = (uid in val_unique_ids)
+
     
     def put_file_to_folder(self, unique_id, folder_path, tgrd_fs_folder):
         import shutil
@@ -152,7 +215,8 @@ class BaseDataset(torch.utils.data.Dataset):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
         
-        shutil.copyfile(row["mp3_path"], os.path.join(folder_path, f"{unique_id}.mp3"))
+        f_end = row["mp3_path"].split(".")[-1]
+        shutil.copyfile(row["mp3_path"], os.path.join(folder_path, f"{unique_id}.{f_end}"))
 
         y, sr = librosa.load(row["mp3_path"])
         duration = len(y) / sr
@@ -190,14 +254,17 @@ class BaseDataset(torch.utils.data.Dataset):
         import os
         
         mp3_path = os.path.join(folder_path, f"{unique_id}.mp3")
+        wav_path = os.path.join(folder_path, f"{unique_id}.wav")
         tgrd_path = os.path.join(folder_path, f"{unique_id}.TextGrid")
 
         if os.path.isfile(mp3_path):
             os.remove(mp3_path)
+        if os.path.isfile(wav_path):
+            os.remove(wav_path)
         if os.path.isfile(tgrd_path):
             os.remove(tgrd_path)
     
-    def return_gold_dataset(self, trained_samples=[], dataset_type="train"):
+    def return_gold_dataset(self, trained_samples=[], dataset_type="pretrain", upsample=True, upsample_ratio=1):
         self._refresh_gold_labels()
         assert dataset_type in ("pretrain", "train", "val")
         allowed_unique_ids = []
@@ -211,34 +278,46 @@ class BaseDataset(torch.utils.data.Dataset):
         
         positive_unique_ids = []
         negative_unique_ids = []
+        bad_unique_ids = []
         for unique_id in allowed_unique_ids:
             if pd.notna(self.gold_labels["label"][unique_id]) and unique_id not in trained_samples:
                 if self.gold_labels["label"][unique_id] == 1:
                     positive_unique_ids.append(unique_id)
                 elif self.gold_labels["label"][unique_id] == 0:
                     negative_unique_ids.append(unique_id)
-        
+                elif self.gold_labels["label"][unique_id] == -1:
+                    bad_unique_ids.append(unique_id)
+
         import random
 
         positive_count = len(positive_unique_ids)
         negative_count = len(negative_unique_ids)
+        bad_count = len(bad_unique_ids)
         target_num = max(positive_count, negative_count)
-        if dataset_type!="val":
+        if dataset_type!="val" and upsample:
             print(f"Positive samples: {positive_count}, Negative samples: {negative_count}, Target samples per class: {target_num}")
             if 0 < positive_count < target_num:
-                diff = target_num - positive_count
+                diff = int((target_num - positive_count) * upsample_ratio)
                 sampled_unique_ids = random.choices(positive_unique_ids, k=diff)
                 positive_unique_ids.extend(sampled_unique_ids)
                 print(f"Upsampled positive samples by {diff}")
+
             if 0 < negative_count < target_num:
-                diff = target_num - negative_count
+                diff = int((target_num - negative_count) * upsample_ratio)
                 sampled_unique_ids = random.choices(negative_unique_ids, k=diff)
                 negative_unique_ids.extend(sampled_unique_ids)
                 print(f"Upsampled negative samples by {diff}")
-        else:
-            print(f"Positive samples: {positive_count}, Negative samples: {negative_count}")
+            
+            if 0 < bad_count < target_num:
+                diff = int((target_num - bad_count) * upsample_ratio)
+                sampled_unique_ids = random.choices(bad_unique_ids, k=diff)
+                bad_unique_ids.extend(sampled_unique_ids)
+                print(f"Upsampled bad samples by {diff}")
 
-        unique_ids = positive_unique_ids + negative_unique_ids
+        else:
+            print(f"Positive samples: {positive_count}, Negative samples: {negative_count}, Bad samples: {bad_count}")
+
+        unique_ids = positive_unique_ids + negative_unique_ids + bad_unique_ids
 
         ordered_unique_ids = sorted(unique_ids, key=lambda x: self.gold_labels["order"][x])
         gold_indices = [self.unique_id2idx[uid] for uid in ordered_unique_ids]
@@ -261,7 +340,7 @@ class BaseDataset(torch.utils.data.Dataset):
         row = self.df.iloc[dataset_index]
         unique_id = self.get_unique_id(dataset_index)
         
-        gold_labels = pd.read_csv("current_gold_labels.csv")
+        gold_labels = pd.read_csv("gold_labels.csv")
         if unique_id in gold_labels["unique_id"].values:
             gold_labels.loc[gold_labels["unique_id"] == unique_id, "label"] = label
         else:
@@ -272,7 +351,7 @@ class BaseDataset(torch.utils.data.Dataset):
             }
             gold_labels = pd.concat([gold_labels, pd.DataFrame([new_entry])], ignore_index=True)
         
-        gold_labels.to_csv("current_gold_labels.csv", index=False)
+        gold_labels.to_csv("gold_labels.csv", index=False)
         self._refresh_gold_labels()
 
     def _to_embed(self, id_num, mp3_path, start_time, end_time, min_len=400):
@@ -310,6 +389,47 @@ class BaseDataset(torch.utils.data.Dataset):
 
         np.save(saved_embed_path, embed.cpu().numpy())
         return embed.cpu()
+
+    def _to_hidden(self, id_num, mp3_path, start_time, end_time, min_len=400):
+        # cache file: variable length T, fixed dim 1024
+        saved_hidden_path = f"saved_hiddens/{id_num}_{start_time}_{end_time}.npy"
+        os.makedirs("saved_hiddens", exist_ok=True)
+
+        if os.path.isfile(saved_hidden_path):
+            arr = np.load(saved_hidden_path)  # shape (T, 1024)
+            return torch.tensor(arr, dtype=torch.float32)
+
+        segment, sr, _ = self._get_audio_segment(
+            id_num=id_num,
+            mp3_path=mp3_path,
+            start_time=start_time,
+            end_time=end_time,
+            save_temp_files=False,
+        )
+
+        if sr != 16000:
+            import librosa
+            segment = librosa.resample(segment, orig_sr=sr, target_sr=16000)
+
+        segment = np.asarray(segment, dtype=np.float32)
+
+        if len(segment) < min_len:
+            pad_width = min_len - len(segment)
+            segment = np.pad(segment, (0, pad_width), mode="constant")
+
+        with torch.no_grad():
+            inputs = self.feature_extractor(
+                segment,
+                sampling_rate=16000,
+                return_tensors="pt"
+            )
+            outputs = self.model(inputs.input_values.to(self.device))
+            hidden = outputs.last_hidden_state.squeeze(0)  # (T, 1024)
+
+        # Save as float16 to reduce disk (you can switch to float32 if you want)
+        np.save(saved_hidden_path, hidden.cpu().numpy().astype(np.float16))
+        return hidden.cpu()
+
 
     def _get_audio_segment(self, id_num, mp3_path, start_time, end_time, save_temp_files=False):
         if pd.isna(start_time) or pd.isna(end_time):
@@ -351,14 +471,32 @@ class SegmentPairDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         ex = self.data[idx]
 
-        features = self._get_features(ex)
+        # features = self._get_features(ex)
+        hidden = ex["hidden"]
 
         phone_ids = torch.tensor([
             ex["preceding_phone_id"],
             # ex["target_phone_id"],
             ex["following_phone_id"],
         ])
-        silver_label = ex["silver_label"]
+        silver_label = torch.tensor(ex["silver_label"], dtype=torch.float32)
 
         label = ex[f"{self.dataset_type}_label"]
-        return features, phone_ids, torch.tensor(silver_label, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+        
+
+        bad_y = 1.0 if label == -1 else 0.0
+        vowel_mask = 0.0 if label == -1 else 1.0
+        vowel_y = 0.0 if label == -1 else float(label)  # dummy 0.0 when masked
+
+        return (
+            hidden,
+            phone_ids,
+            silver_label,
+            torch.tensor(vowel_y, dtype=torch.float32),
+            torch.tensor(vowel_mask, dtype=torch.float32),
+            torch.tensor(bad_y, dtype=torch.float32),
+        )
+        # vowel_label = None if label==-1 else label
+        # bad_label = 1 if label==-1 else 0
+        # # return features, phone_ids, torch.tensor(silver_label, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+        # return hidden, phone_ids, torch.tensor(silver_label, dtype=torch.float32), torch.tensor(vowel_label, dtype=torch.float32), torch.tensor(bad_label, dtype=torch.float32)
